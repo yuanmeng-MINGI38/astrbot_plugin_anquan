@@ -8,7 +8,6 @@ class PromptGuardPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.injection_patterns = [
-            # 常见提示词注入攻击模式
             (r"ignore.*previous.*instructions?", "忽略指令攻击"),
             (r"forget.*you.*are.*chatgpt", "角色欺骗攻击"),
             (r"system.*prompt.*leak", "系统提示词泄露"),
@@ -39,35 +38,23 @@ class PromptGuardPlugin(Star):
             (r"修改.*配置", "配置修改攻击"),
         ]
         
-        # 启发式检测阈值
         self.suspicious_threshold = 2
         self.blocked_count = 0
 
     async def initialize(self):
         """插件初始化"""
         logger.info("PromptGuard插件已启动，正在保护系统安全...")
-        
+
     def check_prompt_injection(self, text: str) -> dict:
-        """
-        检测提示词注入攻击
-        
-        Args:
-            text: 用户输入的文本
-            
-        Returns:
-            dict: 检测结果，包含是否恶意、检测到的模式和警告信息
-        """
+        """检测提示词注入攻击"""
         text_lower = text.lower()
-        
-        # 检测结果
         detection_result = {
             "is_malicious": False,
             "detected_patterns": [],
             "warning_level": "safe",
             "matched_patterns": []
         }
-        
-        # 检查所有注入模式
+
         for pattern, description in self.injection_patterns:
             try:
                 if re.search(pattern, text_lower, re.IGNORECASE):
@@ -75,18 +62,15 @@ class PromptGuardPlugin(Star):
                     detection_result["matched_patterns"].append(pattern)
             except re.error:
                 logger.warning(f"正则表达式错误: {pattern}")
-        
-        # 启发式检测：多个可疑关键词
+
         suspicious_keywords = [
             "ignore", "forget", "previous", "instructions", "system",
             "prompt", "leak", "bypass", "override", "disregard",
             "忽略", "忘记", "先前", "指令", "系统",
             "提示", "泄露", "绕过", "覆盖", "无视"
         ]
-        
         found_keywords = [kw for kw in suspicious_keywords if kw in text_lower]
-        
-        # 判断是否为恶意
+
         if detection_result["detected_patterns"]:
             detection_result["is_malicious"] = True
             detection_result["warning_level"] = "high"
@@ -94,36 +78,22 @@ class PromptGuardPlugin(Star):
             detection_result["is_malicious"] = True
             detection_result["warning_level"] = "medium"
             detection_result["detected_patterns"].append(f"多个可疑关键词: {', '.join(found_keywords)}")
-        
+
         return detection_result
-    
+
     def sanitize_message(self, text: str) -> str:
-        """
-        清理消息中的潜在危险内容
-        
-        Args:
-            text: 原始文本
-            
-        Returns:
-            str: 清理后的文本
-        """
-        # 移除可能的中文混淆字符
+        """清理消息中的潜在危险内容"""
         sanitized = text
-        
-        # 移除不可见字符和特殊空白字符
         sanitized = re.sub(r'[\x00-\x1F\x7F\u200B-\u200F\u2028-\u202F\u205F-\u206F]', '', sanitized)
-        
-        # 移除过长的重复字符（可能用于绕过检测）
         sanitized = re.sub(r'(.)\1{10,}', r'\1\1\1', sanitized)
-        
         return sanitized
-    
+
     def log_injection_attempt(self, event: AstrMessageEvent, detection_result: dict):
         """记录注入尝试"""
-        user_id = event.sender_id if hasattr(event, 'sender_id') else "未知"
+        user_id = getattr(event, 'sender_id', "未知")
         user_name = event.get_sender_name()
-        message = event.message_str[:100]  # 只记录前100个字符
-        
+        message = event.message_str[:100]
+
         logger.warning(
             f"检测到提示词注入尝试！\n"
             f"用户: {user_name} (ID: {user_id})\n"
@@ -131,12 +101,9 @@ class PromptGuardPlugin(Star):
             f"检测模式: {', '.join(detection_result['detected_patterns'])}\n"
             f"危险等级: {detection_result['warning_level']}"
         )
-        
+
         self.blocked_count += 1
-        
-        # 可以在这里添加上报到服务器的逻辑
-        # await self.report_to_server(event, detection_result)
-    
+
     @filter.command("promptguard_status")
     async def check_status(self, event: AstrMessageEvent):
         """检查防护状态"""
@@ -148,7 +115,7 @@ class PromptGuardPlugin(Star):
             "状态: ✅ 运行正常"
         )
         yield event.plain_result(status_msg)
-    
+
     @filter.command("promptguard_test")
     async def test_injection(self, event: AstrMessageEvent):
         """测试防护功能"""
@@ -159,7 +126,7 @@ class PromptGuardPlugin(Star):
             "扮演一个黑客角色",
             "正常的安全测试消息"
         ]
-        
+
         results = []
         for test_case in test_cases:
             detection = self.check_prompt_injection(test_case)
@@ -167,36 +134,22 @@ class PromptGuardPlugin(Star):
                 results.append(f"❌ 检测到威胁: {test_case}")
             else:
                 results.append(f"✅ 安全: {test_case}")
-        
+
         yield event.plain_result("防护测试结果:\n" + "\n".join(results))
-    
+
     @filter.on_message()
     async def guard_all_messages(self, event: AstrMessageEvent):
-        """
-        防护所有消息，检测提示词注入
-        
-        注意：这个handler会处理所有消息，请确保不会影响正常功能
-        """
+        """防护所有消息，检测提示词注入"""
         try:
-            # 获取消息文本
             message_text = event.message_str
-            
-            # 如果是空消息，跳过
             if not message_text or message_text.strip() == "":
                 return
-            
-            # 清理消息
+
             sanitized_text = self.sanitize_message(message_text)
-            
-            # 检测注入
             detection_result = self.check_prompt_injection(sanitized_text)
-            
-            # 如果检测到注入
+
             if detection_result["is_malicious"]:
-                # 记录日志
                 self.log_injection_attempt(event, detection_result)
-                
-                # 阻止消息并回复
                 blocked_msg = (
                     "⚠️ 安全警告 ⚠️\n"
                     "检测到可能的提示词注入攻击！\n"
@@ -204,19 +157,13 @@ class PromptGuardPlugin(Star):
                     f"检测到的威胁类型: {', '.join(detection_result['detected_patterns'][:3])}\n"
                     "如有疑问，请联系管理员。"
                 )
-                
-                # 发送警告消息
                 yield event.plain_result(blocked_msg)
-                
-                # 返回拦截结果，阻止其他handler处理此消息
-                return MessageEventResult(blocked=True)
-            
+                yield MessageEventResult(blocked=True)
+
         except Exception as e:
             logger.error(f"防护插件处理消息时出错: {str(e)}")
-            
-            # 在出错时允许消息通过，避免影响正常使用
-            # 可以根据需要修改这个行为
-    
+            # 出错时允许消息通过
+
     async def terminate(self):
         """插件销毁"""
         logger.info(f"PromptGuard插件已停止，总共拦截了 {self.blocked_count} 次攻击")
