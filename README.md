@@ -1,0 +1,2 @@
+# astrbot_plugin_anquan
+自动检测和阻断提示词注入攻击
