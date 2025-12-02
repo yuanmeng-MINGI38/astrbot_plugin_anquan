@@ -130,7 +130,7 @@ class PromptGuardPlugin(Star):
 
         yield event.plain_result("防护测试结果:\n" + "\n".join(results))
 
-    @filter.handle()  # 替换 on_message
+    @filter.message()  # 4.7.4 版本拦截所有消息
     async def guard_all_messages(self, event: AstrMessageEvent):
         try:
             message_text = event.message_str
