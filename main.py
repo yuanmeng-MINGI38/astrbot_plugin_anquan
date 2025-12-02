@@ -1,4 +1,6 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event.event_filter import EventFilter
+from astrbot.api.event.message import MessageEvent
+from astrbot.api.event.result import MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
@@ -30,16 +32,19 @@ class AntiPromptInjection(Star):
                 return True
         return False
 
-    @filter.regex(".*")   # ✔ 旧版本通用
-    async def protect(self, event: AstrMessageEvent):
+    @EventFilter()
+    async def protect(self, event: MessageEvent):
         msg = event.message_str
 
         if msg and self.is_dangerous(msg):
-            logger.warning(f"[安全系统] 检测到提示词注入攻击：{msg}")
-            yield event.plain_result("⚠️ 你输入的内容不合规，已被拦截。")
-            return
+            logger.warning(f"[安全系统] ⚠️ 检测到提示词注入：{msg}")
+            return MessageEventResult(
+                is_block=True,
+                reply="⚠️ 内容包含危险关键词，已拦截。"
+            )
 
-        yield MessageEventResult.PASS
+        # 放行消息
+        return None
 
     async def terminate(self):
         pass
